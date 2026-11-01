@@ -144,6 +144,8 @@ class AwakeController {
   #lastActiveAt = 0
   #override = null
   #lastReason = 'disabled'
+  /** The keepDisplay value the live holder was started with; null when none. */
+  #childDisplay = null
 
   constructor(ctx, settings) {
     this.#ctx = ctx
@@ -152,6 +154,24 @@ class AwakeController {
 
   get settings() {
     return this.#settings
+  }
+
+  /**
+   * Re-read this fiber's current config into #settings.
+   *
+   * volatile() fields are explicitly editable "without remounting", so a
+   * settings save updates the stored config but never calls apply() again.
+   * Reading the fiber every tick is what makes a saved change actually reach
+   * the holder process.
+   */
+  #refreshSettings() {
+    try {
+      const fiber = this.#ctx?.fiber
+      const live = fiber?.config
+      if (live !== undefined) this.#settings = resolveSettings(live)
+    } catch {
+      /* keep the last good settings rather than crash the poll loop */
+    }
   }
 
   get running() {
@@ -197,6 +217,11 @@ class AwakeController {
   tick() {
     if (this.#disposed) return
 
+    // volatile() fields are edited WITHOUT remounting the plugin, so apply()
+    // never re-runs and this instance keeps the config it was constructed with.
+    // Re-read the live fiber config each tick instead, or a settings-page save
+    // silently never reaches the holder (keepDisplay would keep its old value).
+    this.#refreshSettings()
     const active = this.activeAgents()
     if (active > 0) this.#lastActiveAt = Date.now()
 
@@ -225,6 +250,14 @@ class AwakeController {
     }
 
     this.#lastReason = reason
+
+    // A live holder cannot change its own request; if keepDisplay flipped, the
+    // child has to be replaced or the new value never reaches powercfg.
+    const displayChanged = this.running && this.#childDisplay !== this.#settings.keepDisplay
+    if (displayChanged) {
+      this.#lastReason = `restart:keepDisplay=${this.#settings.keepDisplay}`
+      this.#killHolder()
+    }
 
     if (want && !this.running) this.#spawnHolder()
     else if (!want && this.running) this.#killHolder()
@@ -279,12 +312,14 @@ class AwakeController {
       this.#lastReason = `holder-error:${error.message}`
     })
     this.#child = child
+    this.#childDisplay = this.#settings.keepDisplay
   }
 
   #killHolder() {
     const child = this.#child
     if (!child) return
     this.#child = null
+    this.#childDisplay = null
     try {
       child.kill()
     } catch {

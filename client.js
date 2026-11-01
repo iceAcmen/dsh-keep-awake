@@ -263,11 +263,19 @@ window.__ModuleLoader__.load({
         'dsh-keep-awake: form subscription',
       )
 
+      // whileServed keeps the register callback's return value as its
+      // "already registered" flag and calls it back when the namespace leaves
+      // the served set. Returning undefined on the not-served branch makes
+      // every settings-mirror emission register the slot again, and the second
+      // attempt throws
+      //   list slot "plugins.item" already has an entry with id "keep-awake"
+      // which aborts the subscriber chain and leaves the card unregistered for
+      // the rest of the session. Always return a real disposer instead.
       ctx.effect(
         () =>
           ctx.configForms.whileServed([ENTRY_ID], (served) => {
-            if (!served.has(ENTRY_ID)) return
-            ctx.slots.inject('plugins.item', () =>
+            if (!served.has(ENTRY_ID)) return () => {}
+            return ctx.slots.inject('plugins.item', () =>
               ctx.slots.register(
                 {
                   name: 'plugins.item',

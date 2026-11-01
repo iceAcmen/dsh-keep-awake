@@ -173,14 +173,46 @@ const ctx = {
       getSnapshot: () => ({ status: 'ready', writable: true, sections: { base: { enabled: true, mode: 'follow' } } }),
       subscribe: () => () => {},
     }),
+    // Faithful whileServed: it stores the register callback's return value and
+    // calls it when the namespace leaves the served set. A callback that
+    // returns undefined therefore looks "not yet registered" on every
+    // subsequent emission, which is exactly how the real registry ended up
+    // registering the same slot id twice and throwing.
     whileServed: (namespaces, callback) => {
       servedCallbacks.push({ namespaces, callback })
-      callback(new Set(namespaces))
+      // `register` is the callback itself; emulate the mirror's sync().
+      const register = callback
+      let off
+      let registerCalls = 0
+      const sync = (servedSet) => {
+        const watched = namespaces.some((ns) => servedSet?.has?.(ns))
+        if (watched && off === undefined) {
+          registerCalls += 1
+          off = register(servedSet)
+        } else if (!watched && off !== undefined) {
+          if (typeof off === 'function') off()
+          off = undefined
+        }
+      }
+      sync(new Set(namespaces))
+      sync(new Set(namespaces)) // a second emission must not re-register
+      servedCallbacks.at(-1).registerCalls = registerCalls
+      return () => {
+        if (typeof off === 'function') off()
+      }
     },
   },
   slots: {
     inject: (slotName, fn) => fn(),
-    register: (options, component) => registeredSlots.push({ options, component }),
+    register: (options, component) => {
+      registeredSlots.push({ options, component })
+      // A real register hands back a disposer; emulate that so whileServed can
+      // tell "already registered" from "not yet".
+      return () => {
+        const at = registeredSlots.findIndex((row) => row.options === options && row.component === component)
+        if (at !== -1) registeredSlots.splice(at, 1)
+      }
+    },
   },
 }
 
@@ -194,6 +226,11 @@ check('apply() ran without throwing', applyError === undefined, applyError && ap
 check('registered a locale dictionary', localeNamespaces.includes('keepAwake'), localeNamespaces.join(','))
 check('asked configForms to gate on the entry id', servedCallbacks.some((c) => c.namespaces.includes('dsh-keep-awake')))
 check('registered into plugins.item', registeredSlots.length === 1, String(registeredSlots.length))
+// The regression guard: a second settings-mirror emission must NOT re-register.
+// Returning undefined from the not-served branch used to cause exactly that,
+// and the real registry answered with a duplicate-id throw.
+const gate = servedCallbacks.find((c) => c.namespaces.includes('dsh-keep-awake'))
+check('registered exactly once across two emissions', gate?.registerCalls === 1, String(gate?.registerCalls))
 
 const slot = registeredSlots[0]
 check('slot name is plugins.item', slot?.options?.name === 'plugins.item', slot?.options?.name)
