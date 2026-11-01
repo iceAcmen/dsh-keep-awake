@@ -1,0 +1,12 @@
+# Dependencies are provided by the harness profile; the source tree keeps a
+# junction to it only so the test suites can resolve @deepseek-ai/schemastery.
+node_modules/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Local scratch output
+agnes-output/
+*.bak-*

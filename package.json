@@ -1,0 +1,64 @@
+{
+  "name": "@local/dsh-keep-awake",
+  "version": "1.1.0",
+  "type": "module",
+  "description": "Keep this machine awake while DeepSeek Harness works — a caffeinate-style power request with a settings page to switch it on and off.",
+  "keywords": [
+    "dsh-plugin",
+    "dsh-client",
+    "deepseek-harness",
+    "awake",
+    "caffeinate",
+    "power"
+  ],
+  "license": "MIT",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iceAcmen/dsh-keep-awake.git"
+  },
+  "homepage": "https://github.com/iceAcmen/dsh-keep-awake#readme",
+  "bugs": {
+    "url": "https://github.com/iceAcmen/dsh-keep-awake/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "hold.ps1",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node namespace-gate.mjs && node describe-e2e.mjs && node contract.mjs && node client-contract.mjs && node smoke.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  }
+}

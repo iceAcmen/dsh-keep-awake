@@ -1,0 +1,11 @@
+# Normalize every text file to LF in the repository, regardless of the
+# platform that checks it out. This plugin ships JavaScript and PowerShell;
+# mixed endings would otherwise show up as spurious diffs.
+* text=auto eol=lf
+
+# PowerShell scripts run on Windows and tolerate LF, but keep them explicit.
+*.ps1 text eol=lf
+
+# Binary assets must never be normalized.
+*.png binary
+*.ico binary

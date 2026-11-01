@@ -1,0 +1,9 @@
+{
+  "meta.title": "防睡眠 / 防息屏",
+  "meta.description": "DSH 工作期间保持电脑唤醒，可随时开关。",
+  "keep_awake.title": "控制防睡眠",
+  "keep_awake.holding": "已保持唤醒",
+  "keep_awake.released": "已释放",
+  "keep_awake.reason": "原因",
+  "keep_awake.agents": "运行中的 Agent"
+}

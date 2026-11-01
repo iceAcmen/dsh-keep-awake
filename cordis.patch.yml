@@ -1,0 +1,11 @@
+# dsh-keep-awake bundle patch.
+#
+# 挂载 Host 半边。默认 config 是「关闭」：插件存在但不生效，
+# 直到用户在设置里打开，或用 keep_awake 工具临时开启。
+- insert:
+    - id: dsh-keep-awake
+      name: '@local/dsh-keep-awake'
+      config:
+        enabled: false
+        mode: follow
+        keepDisplay: true

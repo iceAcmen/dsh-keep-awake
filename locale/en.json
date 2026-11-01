@@ -1,0 +1,9 @@
+{
+  "meta.title": "Keep Awake",
+  "meta.description": "Keep this machine awake while DSH is working; toggle at will.",
+  "keep_awake.title": "Keep-awake control",
+  "keep_awake.holding": "Holding",
+  "keep_awake.released": "Released",
+  "keep_awake.reason": "Reason",
+  "keep_awake.agents": "Running agents"
+}
