@@ -64,7 +64,7 @@ try {
 } catch (error) {
   rendered = `THREW: ${error.message}`
 }
-check('render produced text', typeof rendered === 'string' && rendered.includes('HOLDING'), rendered)
+check('render produced text', typeof rendered === 'string' && (rendered.includes('持有中') || rendered.includes('HOLDING')), rendered)
 console.log(`  render => ${JSON.stringify(rendered)}`)
 
 console.log('\nstatus call never throws')

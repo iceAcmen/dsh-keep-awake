@@ -1,13 +1,12 @@
 /**
- * dsh-keep-awake -- browser artifact.
+ * dsh-keep-awake —— 浏览器端产物。
  *
- * Registers a card into the Plugins page's `plugins.item` slot. The card edits
- * the `dsh-keep-awake` profile entry's config through `configForms`, so a save
- * goes through the same transactional write the other settings pages use.
+ * 往「插件」页面的 `plugins.item` slot 注册一张卡片。卡片通过 `configForms`
+ * 编辑 `dsh-keep-awake` 这个 profile 条目的配置，所以保存走的是和官方设置页
+ * 完全同一套事务式写入。
  *
- * The page only registers while the Host serves that namespace
- * (`configForms.whileServed`), so a deployment without this plugin shows no
- * trace of it.
+ * 只有宿主端供应了这个命名空间（`configForms.whileServed`）时才会注册，
+ * 因此一个没装本插件的部署，看不出任何痕迹。
  */
 
 window.__ModuleLoader__.load({
@@ -19,10 +18,10 @@ window.__ModuleLoader__.load({
 
     const { SettingsForm, SettingsValueField, Switch, settingsNumberField, SettingsFormModel } = primitives
 
-    /** Locale namespace owned by this plugin. */
+    /** 本插件独占的 locale 命名空间。 */
     const NS = 'keepAwake'
 
-    /** Profile entry id: both the config namespace and the loader entry id. */
+    /** profile 条目 id：既是配置命名空间，也是 loader 条目 id。 */
     const ENTRY_ID = 'dsh-keep-awake'
 
     const zh = {
@@ -76,8 +75,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * A boolean field spec. The shared form ships only number/text helpers,
-     * and a staged draft is text, so a boolean round-trips as 'true'/'false'.
+     * 布尔字段的规格。共享表单只提供 number 和 text 两种辅助函数，
+     * 而暂存的草稿本质是文本，所以布尔值以 'true' / 'false' 往返。
      */
     function settingsBooleanField(field) {
       return {
@@ -93,7 +92,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** An enum field spec limited to the given values. */
+    /** 枚举字段的规格，取值限定在给定集合内。 */
     function settingsEnumField(field, allowed) {
       return {
         field,
@@ -116,7 +115,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Bridges the entry's config section onto one staged form. */
+    /** 把条目的配置节桥接到一份可暂存的表单上。 */
     class KeepAwakeController {
       constructor(scope) {
         this.form = new SettingsFormModel(scope, [
@@ -140,7 +139,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /** The face the slot registration injects. */
+      /** slot 注册时注入给卡片的那份数据面。 */
       inject() {
         return {
           hooks: { keepAwakeCard: this.store },
@@ -153,7 +152,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** One labelled switch row plus its hint line. */
+    /** 一行带标签的开关，以及它下面那行说明文字。 */
     function toggleRow(props) {
       const { label, hint, checked, disabled, onChange, rightSlot } = props
       return h('div', { className: 'dka-feature' }, [
@@ -174,8 +173,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Render the plugin's one-liner or its settings form, as the Plugins page asks.
-     * @param props - the view asked for, locale copy, the form snapshot, and actions.
+     * 按「插件」页的要求，渲染插件的一行简介，或者它的设置表单。
+     * @param props - 请求的视图、本地化文案、表单快照，以及各种操作。
      */
     function KeepAwakeCard(props) {
       const { t } = props
@@ -263,14 +262,13 @@ window.__ModuleLoader__.load({
         'dsh-keep-awake: form subscription',
       )
 
-      // whileServed keeps the register callback's return value as its
-      // "already registered" flag and calls it back when the namespace leaves
-      // the served set. Returning undefined on the not-served branch makes
-      // every settings-mirror emission register the slot again, and the second
-      // attempt throws
-      //   list slot "plugins.item" already has an entry with id "keep-awake"
-      // which aborts the subscriber chain and leaves the card unregistered for
-      // the rest of the session. Always return a real disposer instead.
+      // whileServed 会把 register 回调的返回值当作「是否已注册」的标志，
+      // 并在命名空间离开服务集时回调它做清理。如果「未服务」那一支直接返回
+      // undefined，那么设置镜像每刷新一次就会把同一个 slot id 重新注册一遍，
+      // 第二次就会抛：
+      //   下面这条是宿主日志里的原文（list slot "plugins.item" 已存在 id "keep-awake"）
+      // 这个异常会中断订阅链，卡片在整个会话里都不会再注册上。
+      // 所以这里必须始终返回一个真正的 disposer。
       ctx.effect(
         () =>
           ctx.configForms.whileServed([ENTRY_ID], (served) => {

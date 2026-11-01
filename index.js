@@ -1,17 +1,16 @@
 /**
- * dsh-keep-awake -- keep this machine out of sleep / display-off while DeepSeek
- * Harness is working, and let the user decide when that happens.
+ * dsh-keep-awake —— DeepSeek Harness 干活期间，让电脑不休眠、不熄屏，
+ * 至于什么时候保持唤醒，由用户自己决定。
  *
- * WHY a child process: `SetThreadExecutionState` is per-thread, so a power
- * request dies with the thread that made it. Ownership lives in a small
- * PowerShell child (hold.ps1) that re-asserts every 15s until it is killed.
- * Killing it drops the request -- which is exactly the release semantics we
- * want: no global power setting is ever written, and even a hard crash of the
- * host leaves nothing pinned awake.
+ * 为什么必须用子进程：
+ * `SetThreadExecutionState` 是**按线程**生效的，线程一结束，电源请求就随之消失。
+ * 所以请求由一个小 PowerShell 子进程（hold.ps1）持有，它每 15 秒重申一次，
+ * 直到被杀死为止。杀掉子进程就等于释放请求 —— 这正是我们想要的释放语义：
+ * 全程不写任何系统全局设置，宿主就算硬崩，也不会把机器钉在不休眠的状态。
  *
- * WHAT it cannot do: this covers sleep and display-off only. Once the secure
- * desktop (LogonUI / LockApp) is up, no user-level process can type or click
- * into it, so "keep awake" never means "bypass the lock screen".
+ * 它做不到什么：
+ * 只解决「睡眠」和「息屏」两件事。一旦安全桌面（LogonUI / LockApp）升起，
+ * 任何用户态进程都无法往里打字或点击，所以「保持唤醒」永远不等于「绕过锁屏」。
  */
 
 import { spawn } from 'node:child_process'
@@ -20,10 +19,10 @@ import { fileURLToPath } from 'node:url'
 
 import z from '@deepseek-ai/schemastery'
 
-/** Loader identity used in diagnostics. */
+/** Loader 之中用于诊断的身份标识。 */
 export const name = 'keep-awake'
 
-/** Capability seams: the tool registry plus the agent registry for activity. */
+/** 能力接缝：工具注册表，以及用来判断活动状态的 agent 注册表。 */
 export const inject = ['tools', 'agents']
 
 const MODES = ['follow', 'always']
@@ -31,19 +30,18 @@ const MODES = ['follow', 'always']
 const HOLDER_SCRIPT = fileURLToPath(new URL('./hold.ps1', import.meta.url))
 
 /* ------------------------------------------------------------------ */
-/* configuration                                                       */
+/* 配置                                                                */
 /* ------------------------------------------------------------------ */
 
 /**
- * The config schema. This export is what makes the entry a *settings
- * namespace*, and `volatile()` on every leaf is what keeps it there.
+ * 配置 schema。正是这个导出让本条目成为一个**设置命名空间**；
+ * 也正是给每个叶子字段加上 `volatile()`，才让它留在这个命名空间里。
  *
- * `settings.describe` filters each entry through `volatileForm(schema)`:
- * a leaf without `meta.volatile` contributes nothing, and a schema whose
- * whole object subtree contributes nothing is dropped entirely -- silently,
- * with no diagnostic. The browser card gates on `configForms.whileServed`,
- * which reads exactly that list, so a missing `volatile()` means the page
- * never registers and the settings card never appears.
+ * `settings.describe` 会用 `volatileForm(schema)` 过滤每一条：
+ * 没标 `meta.volatile` 的叶子贡献不了任何东西，而整棵 object 子树都贡献不出东西时，
+ * 这个条目会被**整个丢掉** —— 悄无声息，没有任何诊断信息。
+ * 浏览器端那张卡片通过 `configForms.whileServed` 做门控，读的正是这份列表，
+ * 所以少了一个 `volatile()`，页面就永远注册不上，设置卡片也就永远不出现。
  */
 export const Config = z.object({
   enabled: z
@@ -77,18 +75,17 @@ function nonNegativeInteger(value, fallback, field) {
   if (value === undefined || value === null) return fallback
   const n = Number(value)
   if (!Number.isFinite(n) || n < 0) {
-    throw new Error(`keep-awake: ${field} must be a non-negative number`)
+    throw new Error(`keep-awake: ${field} 必须是非负数`)
   }
   return Math.floor(n)
 }
 
 /**
- * Read one config value, unwrapping schemastery's volatile container.
+ * 读一个配置值，并把 schemastery 的 volatile 包装层层剥掉。
  *
- * A `volatile()` field does not resolve to its plain value: `resolveConfig`
- * hands `apply()` a wrapper exposing `get()`, and a bare `config.enabled ===
- * true` would therefore always be false. The wrapper may nest, so unwrap to
- * exhaustion rather than once.
+ * 标了 `volatile()` 的字段不会直接解析成普通值：`resolveConfig` 交给 `apply()`
+ * 的是一个带 `get()` 的包装对象，所以裸写 `config.enabled === true` 会永远是 false。
+ * 包装可能嵌套多层，因此这里要剥到不能再剥，而不是只剥一次。
  */
 function plain(value) {
   let current = value
@@ -105,12 +102,12 @@ function plain(value) {
   return current
 }
 
-/** Normalize the loader-provided config row. */
+/** 把 loader 传进来的配置行规整成内部使用的形态。 */
 export function resolveSettings(config = {}) {
   const enabled = plain(config.enabled) === true
   const mode = String(plain(config.mode) ?? 'follow').trim()
   if (!MODES.includes(mode)) {
-    throw new Error(`keep-awake: mode must be one of ${MODES.join(' / ')}`)
+    throw new Error(`keep-awake: mode 只能是 ${MODES.join(' / ')} 之一`)
   }
   const keepDisplay = plain(config.keepDisplay) !== false
   return {
@@ -123,17 +120,16 @@ export function resolveSettings(config = {}) {
 }
 
 /* ------------------------------------------------------------------ */
-/* the awake controller                                                */
+/* 唤醒控制器                                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * Owns at most one holder child and decides, per tick, whether it should live.
+ * 最多持有一个子进程，并在每次轮询时决定它该不该活着。
  *
- * Decision order: a manual override wins; otherwise `always` holds the request
- * permanently, while `follow` holds it only while an agent is running or the
- * grace window since the last running tick has not expired. The grace window
- * matters because turns end and restart constantly -- without it the child
- * would be killed and respawned between steps.
+ * 决策优先级：手动覆盖优先；否则 `always` 会永久持有请求，
+ * 而 `follow` 只在有 agent 正在运行时、或自上次「有活动」起的宽限期还没过时才持有。
+ * 宽限期这一环很关键：一轮对话结束后会立刻重启下一轮，
+ * 没有它的话，子进程会在两个步骤之间被反复杀掉又拉起。
  */
 class AwakeController {
   #ctx
@@ -144,7 +140,7 @@ class AwakeController {
   #lastActiveAt = 0
   #override = null
   #lastReason = 'disabled'
-  /** The keepDisplay value the live holder was started with; null when none. */
+  /** 当前持有者启动时所用的 keepDisplay 值；没有持有者时为 null。 */
   #childDisplay = null
 
   constructor(ctx, settings) {
@@ -157,12 +153,11 @@ class AwakeController {
   }
 
   /**
-   * Re-read this fiber's current config into #settings.
+   * 把这条 fiber 当前的配置重新读进 `#settings`。
    *
-   * volatile() fields are explicitly editable "without remounting", so a
-   * settings save updates the stored config but never calls apply() again.
-   * Reading the fiber every tick is what makes a saved change actually reach
-   * the holder process.
+   * `volatile()` 字段被明确设计成「可在**不重挂载**的情况下编辑」，
+   * 所以设置页保存后，存下来的配置变了，但 `apply()` 不一定会重新执行。
+   * 每次轮询都重读一遍 fiber 配置，才是让「保存」真正落到持有者进程上的关键。
    */
   #refreshSettings() {
     try {
@@ -170,7 +165,7 @@ class AwakeController {
       const live = fiber?.config
       if (live !== undefined) this.#settings = resolveSettings(live)
     } catch {
-      /* keep the last good settings rather than crash the poll loop */
+      /* 宁可留住上一份好用的配置，也不要让轮询循环崩掉 */
     }
   }
 
@@ -191,7 +186,7 @@ class AwakeController {
     }
   }
 
-  /** Count agents whose own status is `running`. */
+  /** 统计自身状态为 `running` 的 agent 数量。 */
   activeAgents() {
     try {
       return this.#ctx.agents.list().filter((agent) => agent.status === 'running').length
@@ -200,7 +195,7 @@ class AwakeController {
     }
   }
 
-  /** Start the poll loop (idempotent) and decide immediately. */
+  /** 启动轮询循环（可重复调用），并立刻做一次决策。 */
   start() {
     if (this.#timer !== null || this.#disposed) return
     this.tick()
@@ -208,19 +203,19 @@ class AwakeController {
     this.#timer.unref?.()
   }
 
-  /** Whether the poll loop is active. */
+  /** 轮询循环当前是否在跑。 */
   get started() {
     return this.#timer !== null
   }
 
-  /** Re-evaluate whether the holder child should be alive right now. */
+  /** 重新判断此刻持有者子进程该不该活着。 */
   tick() {
     if (this.#disposed) return
 
-    // volatile() fields are edited WITHOUT remounting the plugin, so apply()
-    // never re-runs and this instance keeps the config it was constructed with.
-    // Re-read the live fiber config each tick instead, or a settings-page save
-    // silently never reaches the holder (keepDisplay would keep its old value).
+    // volatile() 字段是「不重挂载」就能改的，apply() 未必会重跑，
+    // 所以这个实例手上可能还是构造时的旧配置。
+    // 每轮都重读一次 fiber 配置，否则设置页保存下来的值永远到不了持有者
+    // （比如 keepDisplay 会一直停在旧值上）。
     this.#refreshSettings()
     const active = this.activeAgents()
     if (active > 0) this.#lastActiveAt = Date.now()
@@ -251,8 +246,8 @@ class AwakeController {
 
     this.#lastReason = reason
 
-    // A live holder cannot change its own request; if keepDisplay flipped, the
-    // child has to be replaced or the new value never reaches powercfg.
+    // 活着的持有者没法改自己已经发出的请求；keepDisplay 一旦翻转，
+    // 就必须换一个子进程，否则新值永远到不了 powercfg。
     const displayChanged = this.running && this.#childDisplay !== this.#settings.keepDisplay
     if (displayChanged) {
       this.#lastReason = `restart:keepDisplay=${this.#settings.keepDisplay}`
@@ -263,14 +258,14 @@ class AwakeController {
     else if (!want && this.running) this.#killHolder()
   }
 
-  /** Force the request on/off regardless of activity, or clear the override. */
+  /** 无视活动状态强制开启／关闭请求，或清掉手动覆盖。 */
   setOverride(value) {
     this.#override = value === 'on' || value === 'off' ? value : null
     this.tick()
     return this.state
   }
 
-  /** Enable/disable the automatic policy at runtime. */
+  /** 在运行期启用／停用自动策略。 */
   setEnabled(enabled) {
     this.#settings.enabled = enabled === true
     if (this.#settings.enabled) this.start()
@@ -303,7 +298,7 @@ class AwakeController {
     child.on('exit', (code) => {
       if (this.#child !== child) return
       this.#child = null
-      // The request died with the child; let the next tick re-decide.
+      // 请求随子进程一起没了，交给下一轮轮询重新决策。
       this.#lastReason = `holder-exited:${code}`
     })
     child.on('error', (error) => {
@@ -323,11 +318,11 @@ class AwakeController {
     try {
       child.kill()
     } catch {
-      /* already gone */
+      /* 已经没了 */
     }
   }
 
-  /** Release everything: timer, holder child, and the request with it. */
+  /** 释放一切：定时器、持有者子进程，以及随之消失的电源请求。 */
   dispose() {
     this.#disposed = true
     if (this.#timer !== null) {
@@ -339,7 +334,7 @@ class AwakeController {
 }
 
 /* ------------------------------------------------------------------ */
-/* plugin entry                                                        */
+/* 插件入口                                                            */
 /* ------------------------------------------------------------------ */
 
 export function apply(ctx, config = {}) {
@@ -388,9 +383,9 @@ export function apply(ctx, config = {}) {
         },
       },
       render: (_args, value) => [
-        `keep_awake ${value.action}: ${value.running ? 'HOLDING' : 'released'} (${value.reason})`,
-        `enabled=${value.enabled} mode=${value.mode} keepDisplay=${value.keepDisplay} · running agents=${value.activeAgents}`,
-        value.running && value.pid ? `holder pid ${value.pid}` : '',
+        `keep_awake ${value.action}：${value.running ? '持有中' : '已释放'}（${value.reason}）`,
+        `enabled=${value.enabled} mode=${value.mode} keepDisplay=${value.keepDisplay} · 运行中 agent=${value.activeAgents}`,
+        value.running && value.pid ? `持有者 PID ${value.pid}` : '',
       ].filter(Boolean).join('\n'),
     },
     async execute(args) {
